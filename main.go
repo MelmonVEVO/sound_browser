@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	clipboard "github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -48,6 +49,7 @@ type keyMap struct {
 	Up   key.Binding
 	Down key.Binding
 	Quit key.Binding
+	Copy key.Binding
 }
 
 var keys = keyMap{
@@ -62,6 +64,10 @@ var keys = keyMap{
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c", "esc"),
 		key.WithHelp("q", "quit"),
+	),
+	Copy: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "copy path"),
 	),
 }
 
@@ -78,6 +84,7 @@ type model struct {
 	currentCtrl           *beep.Ctrl
 	currentStream         beep.StreamSeekCloser
 	err                   string
+	status                string
 	directory             string
 }
 
@@ -168,6 +175,16 @@ func findAudioFiles(dir string) ([]audioFile, error) {
 	return files, nil
 }
 
+func copySelectedPath(m *model) {
+	audioFilePath := m.files[m.cursor].path
+	if err := clipboard.WriteAll(audioFilePath); err != nil {
+		m.err = fmt.Sprintf("Clipboard error: %v", err)
+		return
+	}
+	m.err = ""
+	m.status = fmt.Sprintf("Copied to clipboard: %s", audioFilePath)
+}
+
 func (m *model) Init() tea.Cmd {
 	// Play the first file on startup
 	if len(m.files) > 0 {
@@ -191,7 +208,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Quit):
 			stopAudio(m)
 			return m, tea.Quit
-
+		case key.Matches(msg, keys.Copy):
+			copySelectedPath(m)
+			return m, nil
 		case key.Matches(msg, keys.Up):
 			if m.cursor > 0 {
 				m.cursor--
@@ -227,6 +246,7 @@ func stopAudio(m *model) {
 func playAudio(m *model, path string) tea.Cmd {
 	stopAudio(m)
 	m.err = ""
+	m.status = ""
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -306,10 +326,14 @@ func (m *model) View() string {
 	}
 
 	if m.err != "" {
-		s += "\n" + errorStyle.Render(m.err) + "\n"
+		s += errorStyle.Render(m.err) + "\n"
+	} else if m.status != "" {
+		s += playingStyle.Render(m.status) + "\n"
+	} else {
+		s += "\n"
 	}
 
-	s += "\n" + helpStyle.Render("↑/↓: navigate • q: quit")
+	s += "\n" + helpStyle.Render("↑/↓: navigate • enter: copy • q: quit")
 	return s
 }
 
